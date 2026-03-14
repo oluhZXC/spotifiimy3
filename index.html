@@ -361,7 +361,12 @@ async function api(path,opts={}){
   await ensureToken();
   const r=await fetch('https://api.spotify.com/v1'+path,{...opts,headers:{'Authorization':'Bearer '+S.token,'Content-Type':'application/json',...(opts.headers||{})}});
   if(r.status===204)return null;
-  if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.error?.message||'API '+r.status)}
+  if(!r.ok){
+    const e=await r.json().catch(()=>({}));
+    const msg=e.error?.message||'API '+r.status;
+    console.error('Spotify API error',r.status,path,e);
+    throw new Error(msg+' ['+path+']');
+  }
   return r.json();
 }
 
@@ -429,12 +434,15 @@ async function home(){
         <div class="grid" id="ha">${sk(5,'aspect-ratio:1')}</div>
       </div>
     </div>`;
+  const results=await Promise.allSettled([
+    api('/me/top/tracks?limit=5&time_range=short_term'),
+    api('/me/top/artists?limit=5&time_range=short_term'),
+    api('/me/playlists?limit=6')
+  ]);
+  const td=results[0].status==='fulfilled'?results[0].value:null;
+  const ad=results[1].status==='fulfilled'?results[1].value:null;
+  const pd=results[2].status==='fulfilled'?results[2].value:null;
   try{
-    const [td,ad,pd]=await Promise.all([
-      api('/me/top/tracks?limit=5&time_range=short_term'),
-      api('/me/top/artists?limit=5&time_range=short_term'),
-      api('/me/playlists?limit=6')
-    ]);
     const colors=['#1DB954','#E91E63','#9C27B0','#2196F3','#FF5722','#FF9800'];
     const qs=document.getElementById('qs');
     if(qs&&pd)qs.innerHTML=pd.items.slice(0,6).map((p,i)=>`
@@ -566,7 +574,13 @@ async function topTracks(){
 
 async function loadTT(range,el){
   if(el){document.querySelectorAll('#trc .chip').forEach(c=>c.classList.remove('on'));el.classList.add('on')}
-  try{const d=await api(`/me/top/tracks?limit=50&time_range=${range}`);S.queue=d.items;const e=document.getElementById('ttl');if(e)e.innerHTML=renderTracks(d.items)}catch(e){toast(e.message)}
+  try{
+    const d=await api(`/me/top/tracks?limit=50&time_range=${range}`);
+    S.queue=d.items;const e=document.getElementById('ttl');if(e)e.innerHTML=renderTracks(d.items);
+  }catch(e){
+    const el2=document.getElementById('ttl');
+    if(el2)el2.innerHTML=`<div class="empty"><span class="material-icons-round">lock</span><h3>Нет доступа</h3><p>Spotify ограничивает /me/top для приложений в режиме разработки.<br><br>Попробуй раздел «Недавнее» — он работает без ограничений.</p></div>`;
+  }
 }
 
 async function topArtists(){
@@ -581,7 +595,10 @@ async function loadTA(range,el){
     const d=await api(`/me/top/artists?limit=50&time_range=${range}`);
     const g=document.getElementById('tag');if(!g)return;
     g.innerHTML=d.items.map(a=>`<div class="card" onclick="showArtist('${a.id}','${esc(a.name)}')"><div class="cthumb" style="border-radius:50% 50% 0 0">${a.images?.[0]?`<img src="${a.images[0].url}">`:'<span class="material-icons-round">person</span>'}<div class="cplay"><span class="material-icons-round">play_arrow</span></div></div><div class="cbody"><div class="ctitle">${a.name}</div><div class="csub">${(a.followers.total/1e6).toFixed(1)}M слушателей</div></div></div>`).join('');
-  }catch(e){toast(e.message)}
+  }catch(e){
+    const g=document.getElementById('tag');
+    if(g)g.innerHTML='<div style="color:var(--on-var);font-size:13px;padding:8px;grid-column:1/-1">Топ артистов недоступен — нужен расширенный доступ Spotify API.</div>';
+  }
 }
 
 async function recent(){
